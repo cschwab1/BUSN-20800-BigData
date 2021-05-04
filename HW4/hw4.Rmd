@@ -1,0 +1,248 @@
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+This homework is going to focus on using R to make KNN predictions and somewhat reproduce the plots I used in lecture 7.
+
+# Setup
+
+For the lecture I used the following code to generate data:
+
+```{r}
+n = 50
+set.seed(101)
+x1 = runif(n)
+x2 = runif(n)
+prob  = ifelse(x1 < 0.5 & x1 > 0.25 & x2 > 0.25 & x2<0.75,0.8,0.3)
+y  = as.factor(rbinom(n,1,prob))
+levels(y) = c("1","2")
+df = data.frame(y=y,x1=x1,x2=x2)
+```
+
+And then I used the following function to make KNN predictions:
+```{r}
+knn_pred = function(point,x1,x2,y,k) {
+  dists = sqrt((x1-point[1])^2+(x2-point[2])^2) #Find all distances to current obs
+  bound = sort(dists)[k]                #Find kth smallest distance
+  indices = which(dists <= bound)       #Find which obs have dists 1:k
+  outcomes = as.integer(y[indices])     #Find corresponding outcomes y
+  round(mean(outcomes)) #Taking advantage of 2 outcomes. If more 2s, this gives 2, if more 1s this gives 1. 
+}
+```
+
+This code builds a grid of points, and then makes predictions for each of those points.
+```{r}
+grid.fineness = 201
+sequence = seq(0,1,length.out=grid.fineness)
+grid = expand.grid(sequence,sequence)
+colnames(grid) = c("x1","x2")
+yhat = apply(grid,1,knn_pred,x1=x1,x2=x2,y=y,k=5)
+yhat = as.factor(yhat)
+```
+
+With those predictions, we can build a dataframe, and plot.
+```{r}
+df = as.data.frame(grid)
+df$y = yhat
+ggplot(df,aes(x=x1,y=x2,col=y))+geom_point(size=0.08)
+```
+
+If we drop the `round` and subtract 1 in our `knn_pred` function, we can get probabilities out.
+```{r}
+knn_prob = function(point,x1,x2,y,k) {
+  dists = sqrt((x1-point[1])^2+(x2-point[2])^2) #Find all distances to current obs
+  bound = sort(dists)[k]                #Find kth smallest distance
+  indices = which(dists <= bound)       #Find which obs have dists 1:k
+  outcomes = as.integer(y[indices])     #Find corresponding outcomes y
+  mean(outcomes)-1 #Taking advantage of 2 outcomes.
+}
+```
+
+We can predict those probabilities at each point:
+```{r}
+phat = apply(grid,1,knn_prob,x1=x1,x2=x2,y=y,k=1)
+df$phat = phat
+ggplot(df,aes(x=x1,y=x2,col=phat))+geom_point(size=0.08)
+```
+
+This is, in essence, the beginnings of a simulation study. We generated data, and we can look at how our predictions perform. We can do this with either the classifications or the underlying probabilities. 
+
+# Questions
+
+We are going to extend this simulation study in a few ways. 
+
+## Q1 - Bigger Sample
+
+Resetting the seed with:
+```{r}
+set.seed(101)
+```
+
+Run the same data generation code, but with a sample size of 1000. Plot the resulting probabilities when we use $K=1$, $K=5$, and $K=25$. 
+
+```{r}
+n=1000
+x1 = runif(n)
+x2 = runif(n)
+prob  = ifelse(x1 < 0.5 & x1 > 0.25 & x2 > 0.25 & x2<0.75, 0.8, 0.3)
+y  = as.factor(rbinom(n,1,prob))
+levels(y) = c("1","2")
+df1 = data.frame(y=y,x1=x1,x2=x2)
+
+grid.fineness = 201
+sequence = seq(0,1,length.out=grid.fineness)
+grid = expand.grid(sequence,sequence)
+colnames(grid) = c("x1","x2")
+yhat = apply(grid,1,knn_pred,x1=x1,x2=x2,y=y,k=1)
+yhat = as.factor(yhat)
+
+df = as.data.frame(grid)
+df$y = yhat
+
+phat = apply(grid,1,knn_prob,x1=x1,x2=x2,y=y,k=1)
+df$phat = phat
+ggplot(df,aes(x=x1,y=x2,col=phat))+geom_point(size=0.08)
+```
+
+```{r}
+yhat = apply(grid,1,knn_pred,x1=x1,x2=x2,y=y,k=5)
+yhat = as.factor(yhat)
+df$y = yhat
+phat = apply(grid,1,knn_prob,x1=x1,x2=x2,y=y,k=5)
+df$phat = phat
+
+ggplot(df,aes(x=x1,y=x2,col=phat))+geom_point(size=0.08)
+```
+
+```{r}
+yhat = apply(grid,1,knn_pred,x1=x1,x2=x2,y=y,k=25)
+yhat = as.factor(yhat)
+df$y = yhat
+phat = apply(grid,1,knn_prob,x1=x1,x2=x2,y=y,k=25)
+df$phat = phat
+
+ggplot(df,aes(x=x1,y=x2,col=phat))+geom_point(size=0.08)
+```
+
+Plot the classification *predictions* when $K=10$, using a probability threshold of 0.2 for our predictions instead of the standard 0.5. 
+
+```{r, echo=T}
+n=1000
+x1 = runif(n)
+x2 = runif(n)
+prob  = ifelse(x1 < 0.5 & x1 > 0.25 & x2 > 0.25 & x2<0.75, 0.8, 0.3)
+y  = as.factor(rbinom(n,1,prob))
+levels(y) = c("1","2")
+df = data.frame(y=y,x1=x1,x2=x2)
+
+knn_pred = function(point,x1,x2,y,k) {
+  dists = sqrt((x1-point[1])^2+(x2-point[2])^2) #Find all distances to current obs
+  bound = sort(dists)[k]                #Find kth smallest distance
+  indices = which(dists <= bound)       #Find which obs have dists 1:k
+  outcomes = as.integer(y[indices])     #Find corresponding outcomes y
+  round(mean(outcomes)) #Taking advantage of 2 outcomes. If more 2s, this gives 2, if more 1s this gives 1. 
+}
+
+grid.fineness = 201
+sequence = seq(0,1,length.out=grid.fineness)
+grid = expand.grid(sequence,sequence)
+colnames(grid) = c("x1","x2")
+
+phat = apply(grid,1,knn_prob,x1=x1,x2=x2,y=y,k=10)
+yhat = as.factor((phat >= 0.2)+1)
+
+df_grid = data.frame(x1=grid$x1,
+                     x2=grid$x2,
+                     y=yhat,
+                     p=phat)
+ggplot(df_grid,aes(x=x1,y=x2,col=y))+geom_point(size=0.08)
+```
+## Q2 -- Logit Comparison
+
+Fit an interacted logit to this data. (i.e. model $Y\sim x1+x2+x1:x2$ -- using `glm`, not a LASSO). Find the predicted probabilities for every point in our grid, and plot those predicted probabilities. 
+
+```{r}
+set.seed(101)
+
+n=1000
+x1 = runif(n)
+x2 = runif(n)
+prob  = ifelse(x1 < 0.5 & x1 > 0.25 & x2 > 0.25 & x2<0.75, 0.8, 0.3)
+y  = as.factor(rbinom(n,1,prob))
+levels(y) = c("1","2")
+df = data.frame(y=y,x1=x1,x2=x2)
+dfp = df[c(-1)]
+
+x = glm(y ~ x1 + x2 + x1:x2, data=df, family='binomial')
+
+grid.fineness = 201
+sequence = seq(0,1,length.out=grid.fineness)
+grid = expand.grid(sequence,sequence)
+colnames(grid) = c("x1","x2")
+grid <- grid %>% 
+  mutate(z = predict(x, newdata=grid, "response"))
+ggplot(grid,aes(x=x1,y=x2,col=z))+geom_point(size=0.08)
+```
+
+## Q3 -- ROC
+
+Plot the (in-sample) ROC curves for both the logit model and the KNN with $K=10$. (hint: I have a function for doing this, given outcomes and probabilities in the lecture)
+
+Which of these models looks better? 
+
+```{r}
+roc = function(p,y, ...){
+  y = factor(y)
+  n = length(p)
+  p = as.vector(p)
+  probs = seq(0,1,length=1001)
+  mat = matrix(rep(probs,n),ncol=length(probs),byrow=TRUE)
+  Q = p > mat
+  specificity = colMeans(!Q[y==levels(y)[1],])
+  sensitivity = colMeans(Q[y==levels(y)[2],])
+  plot(1-specificity, sensitivity, type="l", ...)
+  abline(a=0,b=1,lty=2,col=8)
+}
+
+thresholds = seq(0,1,length.out=6)
+Q = phat > matrix(rep(thresholds,n),ncol=length(thresholds),byrow=TRUE)
+
+max.i = 1
+specificity = colMeans(!Q[y==levels(y)[1],])[1:max.i]
+sensitivity = colMeans(Q[y==levels(y)[2],])[1:max.i]
+```
+```{r}
+max.i = 2
+specificity = colMeans(!Q[y==levels(y)[1],])[1:max.i]
+sensitivity = colMeans(Q[y==levels(y)[2],])[1:max.i]
+plot(1-specificity,sensitivity,type="b",xlim=c(0,1),ylim=c(0,1),lwd=2)
+abline(a=0,b=1,lty=2,col=8)
+```
+
+
+## Q4 -- Survey
+Please complete the surveys posted last week (and in announcements on canvas). They will help me ensure the last 5 weeks of class are as useful to you as possible. 
+
+
+
+# Optional
+
+1. Plot the resulting predictions from a $k=30$ KNN for Q4.
+2. Find OOS ROC curves in Q2 -- build a holdout, then use predictions on it. 3. Do K-fold cross validation for the OOS ROC curves
+4. Add squared terms to the logit, remake predictions and plots (e.g. `y~x1+x1^2+x2+x2^2+x1:x2)`
+
+## Optional Long Q
+
+We have a new output with three categories.
+```{r}
+# x1,x2,y from your sample with 1k observations need to exist to run this.
+set.seed(101)
+z = ifelse((x1>0.8 | x2 < 0.4),rbinom(length(y),1,0.8),(y==1)*2)
+```
+Modify `knn_pred` so that it predicts the most likely category out of 3 categories (hint: the functions `table`, `which.max`, `names`, and `as.integer` are how I did this) (hint2: maybe start by building a function that takes a vector and finds the most common element, then fit it into the rest of this). Plot the grid-predictions with this new classifier.
+
+
+
+
+

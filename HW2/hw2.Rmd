@@ -1,0 +1,169 @@
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE) 
+setwd("~/Desktop/Code/BUSN Assignments/HW2")
+```
+
+# Introduction
+
+We have a dataset consisting of a lot of descriptive information about a number of home sales. We're going to focus on predicting sale prices and whether or not the down payment is at least 20%. 
+
+# Data
+
+The data is available at [https://codowd.com/bigdata/hw/hw2/homes2004.csv](https://codowd.com/bigdata/hw/hw2/homes2004.csv). 
+
+There is a "codebook", which describes all the variables, posted at [https://codowd.com/bigdata/hw/hw2/homes2004code.txt](https://codowd.com/bigdata/hw/hw2/homes2004code.txt).
+
+## Importing Data
+
+```{r, message=F}
+library(tidyverse)
+homes = read_csv("https://codowd.com/bigdata/hw/hw2/homes2004.csv")
+homes
+```
+
+## Cleaning it up
+
+Lots of the data is stored as characters, even though they look like binary variables. Lets fix that.
+
+First, I'll make sure that is really what is happening.
+
+```{r}
+# I could look at every observation, but that will be time consuming.
+# Instead I'll look at each column, and see how many values it takes.
+levels(as.factor(homes$EABAN))
+# So EABAN only takes values Y and N. 
+# Look at another Variable.
+levels(as.factor(homes$STATE))
+# Other variables take many levels. So we want to see which columns only take two values.
+length(levels(as.factor(homes$BATHS)))
+#Baths takes a lot of values. So it isn't binary.
+
+# But typing things out and running this code for every column is also time consuming. 
+
+# Let's do it all at once using "apply".
+#First we build a function that does the above. It takes a variable "x", and finds how many values that variable takes.
+apply_helper = function(x) length(levels(as.factor(x)))
+# As an aside, the following would also work. 
+apply_helper = function(x) length(unique(x))
+#Tell apply to look at the data frame "homes". Then tell it to look at each column (rather than each row) (this is the "2"). Then run our function on each column of the dataframe 
+apply(homes,2,apply_helper)
+```
+
+So we can conclude that for a sizeable number of variables, there are only two values, "Y" and "N". Let's convert them into Binary's that we can interpret easily. 
+
+There are more complicated and "prettier" ways to do this, but sometimes simplicity is its own value.
+
+```{r} 
+for (i in 1:ncol(homes)) { #For each column
+  uniques = unique(homes[[i]]) #Find the unique values
+  uniques = sort(uniques) #Sort the values (so "N" is before "Y")
+  #If there are too many unique values, move to the next column
+  if (length(uniques) != 2) next 
+  #If the 2 unique values are correct, (match: "N","Y")
+  if (uniques[1] == "N" & uniques[2] == "Y") { 
+    homes[[i]] = (homes[[i]] == "Y") #Replace with a binary.
+  } else { #Otherwise 
+    print(i) #Print the column number
+    print(uniques) #And the values
+  }
+}
+```
+
+Okay, lets look at the misbehaving columns
+
+```{r}
+colnames(homes)[c(11,12,21,27)]
+```
+
+They seem to be a mix of things, which aren't all that cleanly converted into binaries.
+There are still a few other oddball variables around. In particular, we have a few character vectors with more than 2 values (e.g. State). Lets convert all the characters to factors (they all take a limited number of values anyhow).
+
+```{r}
+# In the homes data, look "across" columns and change ("mutate") the ones that are characters (is.character) into factors ("as.factor")
+homes = homes %>% mutate(across(where(is.character),as.factor))
+```
+
+
+# Questions
+
+## Q1 - Regression
+Regress log(price) against all the variables except mortgage and ETRANS (hint: `y~. -VarNAME` will regress on everything except VarNAME). What is the $R^2$? How many coefficients are there?
+
+```{r}
+reg <- glm(log(LPRICE)~.-AMMORT-ETRANS,data=homes)
+summary(reg)
+with(summary(reg), 1 - deviance/null.deviance)
+rsq(reg)
+length(coef(reg))
+```
+
+The $R^2$ is equal to `0.4472979`. There are 41 coefficients. 
+
+## Q2 - FDR, variable selection
+
+Rerun the regression with just those variables that are significant at a 5% FDR (hint: `summary(mod1)$coefficients[,4]` may be helpful assuming your regression in Q1 was named `mod1`). If a factor has some significant levels, keep the entire factor in. What is the new $R^2$? What happened with the $R^2$? Why? (2 sentences total)
+
+```{r}
+fdr_cut = function(pvals, q){
+  pvals = pvals[!is.na(pvals)]
+  K = length(pvals)
+  k = rank(pvals, ties.method="min")
+  alpha = max(pvals[ pvals<= (q*k/K) ])
+  alpha
+}
+
+sig <- fdr_cut(summary(reg)$coefficients[,4], .05)
+
+newreg <- summary(reg)$coefficients[,4] < sig
+reg1 <- glm(log(LPRICE)~.-AMMORT-ETRANS -BEDRMS -NUNITS -METRO,data=homes)
+rsq(reg1)
+length(coef(reg1))
+```
+
+## Q3 - Logit
+Make a binary variable indicating whether or not buyers had at least a 20% down payment (i.e. the mortgage value is less than 80% of the price). Fit a logit to predict this binary using all variables except mortgage, price. Fit a logit using the variables interacted (once) with each other. (Hint: `y~ .^2` will interact everything, and parenthesis may help) (warning: this may take a while. ~2 minutes on my laptop).
+
+How many more coefficients does the second model have? What are the $R^2$ values of each model (hint: the model output stores deviance and null deviance)? Which model would you prefer for predictions at this stage? (1 sentence)
+
+```{r}
+homes1 <- homes
+homes1$atleast20 <- homes1$AMMORT < homes$LPRICE*.8
+reg2 <- glm(atleast20~.-AMMORT-ETRANS, data=homes1, family = binomial)
+reg3 <- glm(atleast20~(.-AMMORT-ETRANS)^2, data=homes1, family = binomial)
+print(1-reg2$deviance/reg2$null.deviance)
+print(1)
+print(length(coef(reg3))- length(coef(reg2)))
+rsq(reg3)
+```
+
+## Q4 - Out of Sample A
+Estimate the model in Q1 using only data where ETRANS is TRUE. Then test how well that model performs by making predictions for the data where ETRANS is FALSE. Show the out-of-sample fitted vs real outcome plot (hint: it may be helpful to add both a 45 degree line, and the best fit line). Describe what happened here (max 2 sentences, variable codebook may help you).
+
+```{r}
+train = glm(log(LPRICE)~.-AMMORT -ETRANS, data=homes[homes$ETRANS == TRUE,])
+test <- predict(train, newdata=homes[homes$ETRANS == FALSE,])
+etranfalse <- homes[homes$ETRANS == FALSE,]
+
+df <- data.frame(y=log(etranfalse$LPRICE), yhat = test)
+ggplot(df,aes(y=yhat,x=y)) +
+  geom_point(alpha=0.2) + geom_smooth(method="lm") + geom_abline(xintercept = 0, slope=1)
+```
+
+## Q5 - Out of Sample B
+Randomly select a holdout sample of 1000 observations (hint: the `sample` function). Fit both models from Q3 again using the remaining observations (hint: `homes[-indices,]` will give `homes` but without the observations indexed by the vector `indices`). Make predictions for the holdout sample using each model. Calculate the prediction error for each observation in the holdout sample. What are the mean squared errors for each of these models out of sample? Which model would you prefer at this stage?
+
+```{r}
+
+```
+
+# Submission
+
+As before, submit on canvas in groups. Due Date is Wednesday April 14th at midnight. Solutions will be discussed in class on April 15th. 
+
+# Optional Exercises
+
+1. Use a random holdout sample for Q4. How does this change your results?
+2. Instead of selecting variables using FDR in Q2, install the 'glmnet' package and run a LASSO. How many variables do you drop?
+3. Calculate the out-of-sample deviance for each model in Q5. Which is better now?
+
+
